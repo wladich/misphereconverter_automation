@@ -77,7 +77,6 @@ def list_vm_dir(dir_):
 
 
 def check_msc_alive():
-    # res = subprocess.check_output([adb_exec, 'shell', 'pgrep com.hirota41.mijiaconverter'])
     p = subprocess.Popen([adb_exec, 'shell', 'ps | grep com.hirota41.mijiaconverter'],
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = p.communicate()
@@ -87,8 +86,6 @@ def check_msc_alive():
         if p.returncode in (0, 1) and not stdout:
             return False
     raise Exception('Unexpected result from ps | grep: code="%s", stdout="%s", stderr="%s"' % (p.returncode, stdout, stderr))
-    # assert res in (0, 1), res
-    # return res == 0
 
 
 def set_jpeg_quality(quality):
@@ -115,7 +112,6 @@ def process_image(filename, dest_filename, calibration_filename=None):
             retries -= 1
             if not retries:
                 raise Exception('Too many retries while running MSC')
-            # print 'Retrying start msc'
             time.sleep(1)
             start_msc(os.path.basename(filename))
         ready_files = [fn for fn in list_vm_dir(vm_dest_dir) if fn.lower().endswith('.jpg')]
@@ -148,7 +144,6 @@ def main():
         exit(1)
 
     src_filenames = expand_src(conf.src)
-    #TODO: set exif coment field to specified value
     set_jpeg_quality(conf.quality)
     for i, filename in enumerate(src_filenames):
         print '\r%s / %s' % (i, len(src_filenames)),
@@ -158,9 +153,6 @@ def main():
         print '\r%s / %s' % (i + 1, len(src_filenames)),
         sys.stdout.flush()
 
-
-
-    # for fn in
 
 if __name__ == '__main__':
     main()
