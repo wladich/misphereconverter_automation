@@ -5,7 +5,10 @@ import subprocess
 import argparse
 import time
 import tempfile
-
+import shutil
+import struct
+import math
+import numpy as np
 
 msc_vm_name = 'MiSphereConverter'
 #adb_exec = '/home/w/Android/Sdk/platform-tools/adb'
@@ -107,16 +110,81 @@ def set_jpeg_quality(quality):
         copy_file_to_vm(config_file.name, '/data/data/com.hirota41.mijiaconverter/shared_prefs/com.hirota41.mijiaconverter_preferences.xml')
 
 
-def process_image(filename, dest_filename, calibration_filename=None):
+def set_user_comment(filename, data):
+    user_comment_start = '\x86\x92\x07\x00$\x00\x00\x00'
+    with open(filename, 'r+b') as f:
+        s = f.read(4096)
+        i = s.index(user_comment_start)
+        if i > 4096 - (len(user_comment_start) + 2):
+            raise Exception
+        i += len(user_comment_start)
+        offset = struct.unpack('I', s[i:i + 4])[0] + 12
+        f.seek(offset)
+        f.write(data)
+
+
+def make_rotation_matrix(z, x, y):
+    mats = []
+
+    z = math.radians(z)
+    cos_z = math.cos(z)
+    sin_z = math.sin(z)
+    z_mat = [
+        [cos_z, -sin_z, 0],
+        [sin_z, cos_z, 0],
+        [0, 0, 1]
+    ]
+    mats.append(np.array(z_mat))
+
+    y = math.radians(y)
+    cos_y = math.cos(y)
+    sin_y = math.sin(y)
+    y_mat = [
+        [cos_y, 0, sin_y],
+        [0, 1, 0],
+        [-sin_y, 0, cos_y]
+    ]
+    mats.append(np.array(y_mat))
+
+    x = math.radians(x)
+    cos_x = math.cos(x)
+    sin_x = math.sin(x)
+    x_mat = [
+        [1, 0, 0],
+        [0, cos_x, -sin_x],
+        [0, sin_x, cos_x]
+    ]
+    mats.append(np.array(x_mat))
+
+    return reduce(np.matrix.dot, mats)
+
+
+def make_exif_matrix(yaw, pitch, roll):
+    mat = list(make_rotation_matrix(-yaw, -pitch, roll).flatten())
+    s = struct.pack('f' * 9, *mat)
+    return s
+
+
+def process_image(src_filename, dest_filename, calibration_filename=None, pose=None):
     ensure_empty_vm_dir(msc_vm_name, vm_src_dir)
     ensure_empty_vm_dir(msc_vm_name, vm_dest_dir)
     if calibration_filename:
         copy_file_to_vm(calibration_filename, vm_dest_dir)
-    copy_file_to_vm(filename, vm_src_dir)
+    if pose is None:
+        work_filename = src_filename
+        copy_file_to_vm(work_filename, vm_src_dir)
+    else:
+        yaw, pitch, roll = pose
+        with tempfile.NamedTemporaryFile() as temp_file:
+            work_filename = temp_file.name
+            shutil.copy(src_filename, work_filename)
+            mat = make_exif_matrix(yaw, pitch, roll)
+            set_user_comment(work_filename, mat)
+            copy_file_to_vm(work_filename, vm_src_dir)
     retries = 10
     ready_files = []
+    start_msc(os.path.basename(work_filename))
     while retries:
-        start_msc(os.path.basename(filename))
         ready_files = [fn for fn in list_vm_dir(vm_dest_dir) if fn.lower().endswith('.jpg')]
         if ready_files:
             break
@@ -140,6 +208,7 @@ def main():
     parser.add_argument('dest_dir')
     parser.add_argument('-q', '--quality', default=80, help='JPEG quality')
     parser.add_argument('-c', '--calibration-file')
+    parser.add_argument('--pose', help='yaw,pitch,roll  in degrees. If not specified use pose from image exif data.')
     conf = parser.parse_args()
 
     if not os.path.isdir(conf.dest_dir):
@@ -147,12 +216,16 @@ def main():
         exit(1)
 
     src_filenames = expand_src(conf.src)
+    if conf.pose is not None:
+        pose = map(float, conf.pose.split(','))
+    else:
+        pose = None
     set_jpeg_quality(conf.quality)
     for i, filename in enumerate(src_filenames):
         print '\r%s / %s' % (i, len(src_filenames)),
         sys.stdout.flush()
         dest_filename = os.path.join(conf.dest_dir, os.path.basename(filename))
-        process_image(filename, dest_filename, conf.calibration_file)
+        process_image(filename, dest_filename, conf.calibration_file, pose)
         print '\r%s / %s' % (i + 1, len(src_filenames)),
         sys.stdout.flush()
 
