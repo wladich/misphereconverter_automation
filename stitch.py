@@ -206,14 +206,15 @@ def process_image(src_filename, dest_filename, calibration_filename=None, pose=N
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('src', nargs='+')
-    parser.add_argument('dest_dir')
+    parser.add_argument('dest', help='Destination directory. If single source provided can also be a filename.')
     parser.add_argument('-q', '--quality', default=80, help='JPEG quality')
     parser.add_argument('-c', '--calibration-file')
     parser.add_argument('--pose', help='yaw,pitch,roll  in degrees. If not specified use pose from image exif data.')
     conf = parser.parse_args()
 
-    if not os.path.isdir(conf.dest_dir):
-        print '%s is not a directory or does not exists' % conf.dest_dir
+    is_src_single_file = len(conf.src) == 1 and os.path.isfile(conf.src[0])
+    if not is_src_single_file and not os.path.isdir(conf.dest):
+        print '%s is not a directory or does not exists' % conf.dest
         exit(1)
 
     src_filenames = expand_src(conf.src)
@@ -225,7 +226,10 @@ def main():
     for i, filename in enumerate(src_filenames):
         print '\r%s / %s' % (i, len(src_filenames)),
         sys.stdout.flush()
-        dest_filename = os.path.join(conf.dest_dir, os.path.basename(filename))
+        if is_src_single_file and not os.path.isdir(conf.dest):
+            dest_filename = conf.dest
+        else:
+            dest_filename = os.path.join(conf.dest, os.path.basename(filename))
         process_image(filename, dest_filename, conf.calibration_file, pose)
         print '\r%s / %s' % (i + 1, len(src_filenames)),
         sys.stdout.flush()
