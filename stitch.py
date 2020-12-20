@@ -1,0 +1,166 @@
+# coding: utf-8
+import sys
+import os
+import subprocess
+import argparse
+import time
+import tempfile
+
+
+msc_vm_name = 'MiSphereConverter'
+#adb_exec = '/home/w/Android/Sdk/platform-tools/adb'
+adb_exec = '/home/w/opt/genymotion/tools/adb'
+vboxmanage_exec = 'vboxmanage'
+vm_src_dir = '/mnt/sdcard/panosrc/'
+vm_dest_dir = '/mnt/sdcard/MiSphereConverter/'
+runner_class_name = 'com.example.w.sendtomsc/.MainActivity'
+
+
+def expand_src(src_list):
+    filenames = []
+    for el in src_list:
+        if os.path.isdir(el):
+            for fn in os.listdir(el):
+                if os.path.splitext(fn)[1].lower() == '.jpg':
+                    filenames.append(os.path.join(el, fn))
+        else:
+            filenames.append(el)
+    return filenames
+
+
+def check_call_retry(*args, **kwargs):
+    retries = 10
+    while True:
+        try:
+            return subprocess.check_call(*args, **kwargs)
+        except subprocess.CalledProcessError:
+            retries -= 1
+            if not retries:
+                raise
+            time.sleep(1)
+
+
+def ensure_empty_vm_dir(vm_name, dir_):
+    check_call_retry([adb_exec, 'shell', 'mkdir -p %s' % dir_])
+    check_call_retry([adb_exec, 'shell', 'touch %s/dummy' % dir_])
+    check_call_retry([adb_exec, 'shell', 'rm %s/*' % dir_])
+
+
+def copy_file_to_vm(filename, dest_path):
+    assert os.path.exists(filename)
+    check_call_retry([adb_exec, 'push', filename, dest_path], stdout=subprocess.PIPE)
+
+
+def copy_file_from_vm(filename, dest_path):
+    check_call_retry([adb_exec, 'pull', filename, dest_path], stdout=subprocess.PIPE)
+
+
+def check_file_valid(path):
+    size = os.path.getsize(path)
+    if size < 2:
+        return False
+    with open(path) as f:
+        f.seek(size - 2)
+        return f.read() == '\xff\xd9'
+
+
+def start_msc(image_filename):
+    check_call_retry([adb_exec, 'shell',
+                           'am force-stop com.hirota41.mijiaconverter'])
+
+    check_call_retry([adb_exec, 'shell',
+                           'am start -a android.intent.action.SEND --eu android.intent.extra.STREAM file://%s%s com.hirota41.mijiaconverter/.IntentActivity' % (vm_src_dir, image_filename)], stdout=subprocess.PIPE)
+
+
+def list_vm_dir(dir_):
+    return subprocess.check_output([adb_exec, 'shell', 'ls %s' % dir_]).splitlines()
+
+
+def check_msc_alive():
+    # res = subprocess.check_output([adb_exec, 'shell', 'pgrep com.hirota41.mijiaconverter'])
+    p = subprocess.Popen([adb_exec, 'shell', 'ps | grep com.hirota41.mijiaconverter'],
+                         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = p.communicate()
+    if not stderr:
+        if p.returncode == 0 and stdout:
+            return True
+        if p.returncode in (0, 1) and not stdout:
+            return False
+    raise Exception('Unexpected result from ps | grep: code="%s", stdout="%s", stderr="%s"' % (p.returncode, stdout, stderr))
+    # assert res in (0, 1), res
+    # return res == 0
+
+
+def set_jpeg_quality(quality):
+    xml = '''<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+<map>
+    <int name="jpg_q" value="%s" />
+</map>''' % quality
+    with tempfile.NamedTemporaryFile() as config_file:
+        config_file.write(xml)
+        config_file.flush()
+        copy_file_to_vm(config_file.name, '/data/data/com.hirota41.mijiaconverter/shared_prefs/com.hirota41.mijiaconverter_preferences.xml')
+
+
+def process_image(filename, dest_filename, calibration_filename=None):
+    ensure_empty_vm_dir(msc_vm_name, vm_src_dir)
+    ensure_empty_vm_dir(msc_vm_name, vm_dest_dir)
+    if calibration_filename:
+        copy_file_to_vm(calibration_filename, vm_dest_dir)
+    copy_file_to_vm(filename, vm_src_dir)
+    retries = 10
+    start_msc(os.path.basename(filename))
+    while True:
+        if not check_msc_alive():
+            retries -= 1
+            if not retries:
+                raise Exception('Too many retries while running MSC')
+            # print 'Retrying start msc'
+            time.sleep(1)
+            start_msc(os.path.basename(filename))
+        ready_files = [fn for fn in list_vm_dir(vm_dest_dir) if fn.lower().endswith('.jpg')]
+        if ready_files:
+            break
+        time.sleep(1)
+    assert len(ready_files) == 1
+    retries = 10
+    while True:
+        copy_file_from_vm(vm_dest_dir + ready_files[0], dest_filename)
+        if check_file_valid(dest_filename):
+            break
+        else:
+            retries -= 1
+            if not retries:
+                raise Exception('Too many retries while retrieving file')
+            time.sleep(1)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('src', nargs='+')
+    parser.add_argument('dest_dir')
+    parser.add_argument('-q', '--quality', default=80, help='JPEG quality')
+    parser.add_argument('-c', '--calibration-file')
+    conf = parser.parse_args()
+
+    if not os.path.isdir(conf.dest_dir):
+        print '%s is not a directory or does not exists' % conf.dest_dir
+        exit(1)
+
+    src_filenames = expand_src(conf.src)
+    #TODO: set exif coment field to specified value
+    set_jpeg_quality(conf.quality)
+    for i, filename in enumerate(src_filenames):
+        print '\r%s / %s' % (i, len(src_filenames)),
+        sys.stdout.flush()
+        dest_filename = os.path.join(conf.dest_dir, os.path.basename(filename))
+        process_image(filename, dest_filename, conf.calibration_file)
+        print '\r%s / %s' % (i + 1, len(src_filenames)),
+        sys.stdout.flush()
+
+
+
+    # for fn in
+
+if __name__ == '__main__':
+    main()
