@@ -65,11 +65,19 @@ def check_file_valid(path):
 
 
 def start_msc(image_filename):
-    check_call_retry([adb_exec, 'shell',
-                           'am force-stop com.hirota41.mijiaconverter'])
-
-    check_call_retry([adb_exec, 'shell',
-                           'am start -a android.intent.action.SEND --eu android.intent.extra.STREAM file://%s%s com.hirota41.mijiaconverter/.IntentActivity' % (vm_src_dir, image_filename)], stdout=subprocess.PIPE)
+    retries = 10
+    while retries:
+        check_call_retry([adb_exec, 'shell',
+                               'am force-stop com.hirota41.mijiaconverter'])
+        check_call_retry([
+            adb_exec, 'shell',
+            'am start -a android.intent.action.SEND --eu android.intent.extra.STREAM file://%s%s com.hirota41.mijiaconverter/.IntentActivity' %
+            (vm_src_dir, image_filename)], stdout=subprocess.PIPE)
+        time.sleep(1)
+        if check_msc_alive():
+            return
+        retries -= 1
+    raise Exception('Too many retries to run MSC')
 
 
 def list_vm_dir(dir_):
@@ -106,14 +114,9 @@ def process_image(filename, dest_filename, calibration_filename=None):
         copy_file_to_vm(calibration_filename, vm_dest_dir)
     copy_file_to_vm(filename, vm_src_dir)
     retries = 10
-    start_msc(os.path.basename(filename))
-    while True:
-        if not check_msc_alive():
-            retries -= 1
-            if not retries:
-                raise Exception('Too many retries while running MSC')
-            time.sleep(1)
-            start_msc(os.path.basename(filename))
+    ready_files = []
+    while retries:
+        start_msc(os.path.basename(filename))
         ready_files = [fn for fn in list_vm_dir(vm_dest_dir) if fn.lower().endswith('.jpg')]
         if ready_files:
             break
