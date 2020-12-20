@@ -182,13 +182,14 @@ def process_image(src_filename, dest_filename, calibration_filename=None, pose=N
             mat = make_exif_matrix(yaw, pitch, roll)
             set_user_comment(work_filename, mat)
             copy_file_to_vm(work_filename, vm_src_dir)
-    retries = 10
+    retries = 60
     ready_files = []
     start_msc(os.path.basename(work_filename))
     while retries:
         ready_files = [fn for fn in list_vm_dir(vm_dest_dir) if fn.lower().endswith('.jpg')]
         if ready_files:
             break
+        retries -= 1
         time.sleep(1)
     assert len(ready_files) == 1
     retries = 10
@@ -196,11 +197,10 @@ def process_image(src_filename, dest_filename, calibration_filename=None, pose=N
         copy_file_from_vm(vm_dest_dir + ready_files[0], dest_filename)
         if check_file_valid(dest_filename):
             break
-        else:
-            retries -= 1
-            if not retries:
-                raise Exception('Too many retries while retrieving file')
-            time.sleep(1)
+        retries -= 1
+        if not retries:
+            raise Exception('Too many retries while retrieving file')
+        time.sleep(1)
 
 
 def main():
