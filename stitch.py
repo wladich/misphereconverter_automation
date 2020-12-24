@@ -15,6 +15,8 @@ import numpy as np
 adb_exec = '/home/w/opt/genymotion/tools/adb'
 vm_src_dir = '/mnt/sdcard/panosrc/'
 vm_dest_dir = '/mnt/sdcard/MiSphereConverter/'
+settings_file = '/data/data/com.hirota41.misphereconverter/shared_prefs/com.hirota41.misphereconverter_preferences.xml'
+package_name = 'com.hirota41.misphereconverter'
 
 
 def expand_src(src_list):
@@ -56,24 +58,28 @@ def copy_file_from_vm(filename, dest_path):
     check_call_retry([adb_exec, 'pull', filename, dest_path], stdout=subprocess.PIPE)
 
 
-def check_file_valid(path):
+def check_file_valid(path, is_png):
+    if is_png:
+        ending = '\x00\x00\x00\x00IEND\xae\x42\x60\x82'
+    else:
+        ending = '\xff\xd9'
     size = os.path.getsize(path)
-    if size < 2:
+    if size < len(ending):
         return False
     with open(path) as f:
-        f.seek(size - 2)
-        return f.read() == '\xff\xd9'
+        f.seek(size - len(ending))
+        return f.read() == ending
 
 
 def start_msc(image_filename):
     retries = 10
     while retries:
         check_call_retry([adb_exec, 'shell',
-                               'am force-stop com.hirota41.mijiaconverter'])
+                               'am force-stop %s' % package_name])
         check_call_retry([
             adb_exec, 'shell',
-            'am start -a android.intent.action.SEND --eu android.intent.extra.STREAM file://%s%s com.hirota41.mijiaconverter/.IntentActivity' %
-            (vm_src_dir, image_filename)], stdout=subprocess.PIPE)
+            'am start -a android.intent.action.SEND --eu android.intent.extra.STREAM file://%s%s %s/.IntentActivity' %
+            (vm_src_dir, image_filename, package_name)], stdout=subprocess.PIPE)
         time.sleep(1)
         if check_msc_alive():
             return
@@ -86,7 +92,7 @@ def list_vm_dir(dir_):
 
 
 def check_msc_alive():
-    p = subprocess.Popen([adb_exec, 'shell', 'ps | grep com.hirota41.mijiaconverter'],
+    p = subprocess.Popen([adb_exec, 'shell', 'ps | grep %s' % package_name],
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = p.communicate()
     if not stderr:
@@ -97,15 +103,20 @@ def check_msc_alive():
     raise Exception('Unexpected result from ps | grep: code="%s", stdout="%s", stderr="%s"' % (p.returncode, stdout, stderr))
 
 
-def set_jpeg_quality(quality):
+def write_settings(jpeg_quality=95, depurple=True, png=False, adaptive=3):
     xml = '''<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
 <map>
-    <int name="jpg_q" value="%s" />
-</map>''' % quality
+    <int name="adaptive" value="{adaptive}" />
+    <boolean name="depurple" value="{depurple}" />
+    <boolean name="tiff" value="{png}" />
+    <int name="jpg_q" value="{quality}" />
+</map>
+'''.format(quality=jpeg_quality, adaptive=adaptive,
+           depurple='true' if depurple else 'false', png='true' if png else 'false')
     with tempfile.NamedTemporaryFile() as config_file:
         config_file.write(xml)
         config_file.flush()
-        copy_file_to_vm(config_file.name, '/data/data/com.hirota41.mijiaconverter/shared_prefs/com.hirota41.mijiaconverter_preferences.xml')
+        copy_file_to_vm(config_file.name, settings_file)
 
 
 def set_user_comment(filename, data):
@@ -163,7 +174,7 @@ def make_exif_matrix(yaw, pitch, roll):
     return s
 
 
-def process_image(src_filename, dest_filename, calibration_filename=None, pose=None):
+def process_image(src_filename, dest_filename, png, calibration_filename=None, pose=None):
     ensure_empty_vm_dir(vm_src_dir)
     ensure_empty_vm_dir(vm_dest_dir)
     if calibration_filename:
@@ -182,8 +193,11 @@ def process_image(src_filename, dest_filename, calibration_filename=None, pose=N
     retries = 60
     ready_files = []
     start_msc(os.path.basename(work_filename))
+    extension = '.png' if png else '.jpg'
+    print 'Extension', extension
     while retries:
-        ready_files = [fn for fn in list_vm_dir(vm_dest_dir) if fn.lower().endswith('.jpg')]
+        print 'FILES', list_vm_dir(vm_dest_dir)
+        ready_files = [fn for fn in list_vm_dir(vm_dest_dir) if fn.lower().endswith(extension)]
         if ready_files:
             break
         retries -= 1
@@ -192,7 +206,7 @@ def process_image(src_filename, dest_filename, calibration_filename=None, pose=N
     retries = 10
     while True:
         copy_file_from_vm(vm_dest_dir + ready_files[0], dest_filename)
-        if check_file_valid(dest_filename):
+        if check_file_valid(dest_filename, png):
             break
         retries -= 1
         if not retries:
@@ -204,7 +218,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('src', nargs='+')
     parser.add_argument('dest', help='Destination directory. If single source provided can also be a filename.')
-    parser.add_argument('-q', '--quality', default=80, help='JPEG quality')
+    parser.add_argument('-q', '--quality', default=95, help='JPEG quality')
+    parser.add_argument('--png', action='store_true', default=False, help='Save file in PNG format')
+    parser.add_argument('--no-depurple', action='store_true', default=False, help='Disable removing purple fringe')
+    parser.add_argument('--distance', type=int, choices=[0, 1, 2, 3], help='0: 1-2 m, 1: 2-3 m, 2: < 5 m, 3: auto',
+                        default=3)
     parser.add_argument('-c', '--calibration-file')
     parser.add_argument('--pose', help='yaw,pitch,roll  in degrees. If not specified use pose from image exif data.')
     conf = parser.parse_args()
@@ -219,7 +237,7 @@ def main():
         pose = map(float, conf.pose.split(','))
     else:
         pose = None
-    set_jpeg_quality(conf.quality)
+    write_settings(jpeg_quality=conf.quality, depurple=not conf.no_depurple, png=conf.png, adaptive=conf.distance)
     for i, filename in enumerate(src_filenames):
         print '\r%s / %s' % (i, len(src_filenames)),
         sys.stdout.flush()
@@ -227,7 +245,7 @@ def main():
             dest_filename = conf.dest
         else:
             dest_filename = os.path.join(conf.dest, os.path.basename(filename))
-        process_image(filename, dest_filename, conf.calibration_file, pose)
+        process_image(filename, dest_filename, conf.png, conf.calibration_file, pose)
         print '\r%s / %s' % (i + 1, len(src_filenames)),
         sys.stdout.flush()
 
