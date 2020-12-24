@@ -11,13 +11,10 @@ import struct
 import math
 import numpy as np
 
-msc_vm_name = 'MiSphereConverter'
 #adb_exec = '/home/w/Android/Sdk/platform-tools/adb'
 adb_exec = '/home/w/opt/genymotion/tools/adb'
-vboxmanage_exec = 'vboxmanage'
 vm_src_dir = '/mnt/sdcard/panosrc/'
 vm_dest_dir = '/mnt/sdcard/MiSphereConverter/'
-runner_class_name = 'com.example.w.sendtomsc/.MainActivity'
 
 
 def expand_src(src_list):
@@ -44,7 +41,7 @@ def check_call_retry(*args, **kwargs):
             time.sleep(1)
 
 
-def ensure_empty_vm_dir(vm_name, dir_):
+def ensure_empty_vm_dir(dir_):
     check_call_retry([adb_exec, 'shell', 'mkdir -p %s' % dir_])
     check_call_retry([adb_exec, 'shell', 'touch %s/dummy' % dir_])
     check_call_retry([adb_exec, 'shell', 'rm %s/*' % dir_])
@@ -167,8 +164,8 @@ def make_exif_matrix(yaw, pitch, roll):
 
 
 def process_image(src_filename, dest_filename, calibration_filename=None, pose=None):
-    ensure_empty_vm_dir(msc_vm_name, vm_src_dir)
-    ensure_empty_vm_dir(msc_vm_name, vm_dest_dir)
+    ensure_empty_vm_dir(vm_src_dir)
+    ensure_empty_vm_dir(vm_dest_dir)
     if calibration_filename:
         copy_file_to_vm(calibration_filename, vm_dest_dir)
     if pose is None:
