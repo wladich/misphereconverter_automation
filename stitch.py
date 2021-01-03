@@ -50,7 +50,7 @@ def ensure_empty_vm_dir(dir_):
 
 
 def copy_file_to_vm(filename, dest_path):
-    assert os.path.exists(filename)
+    assert os.path.exists(filename), filename
     check_call_retry([adb_exec, 'push', filename, dest_path], stdout=subprocess.PIPE)
 
 
