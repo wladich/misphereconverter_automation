@@ -174,7 +174,14 @@ def make_exif_matrix(yaw, pitch, roll):
     return s
 
 
-def process_image(src_filename, dest_filename, png, calibration_filename=None, pose=None):
+def replace_jpeg_rotation_matrix(filename, yaw, pitch, roll):
+    mat = make_exif_matrix(yaw, pitch, roll)
+    set_user_comment(filename, mat)
+
+
+def process_image(src_filename, dest_filename, png=False, calibration_filename=None, pose=None,
+                  jpeg_quality=95, depurple=True, adaptive=3):
+    write_settings(jpeg_quality, depurple, png, adaptive)
     ensure_empty_vm_dir(vm_src_dir)
     ensure_empty_vm_dir(vm_dest_dir)
     if calibration_filename:
@@ -183,20 +190,16 @@ def process_image(src_filename, dest_filename, png, calibration_filename=None, p
         work_filename = src_filename
         copy_file_to_vm(work_filename, vm_src_dir)
     else:
-        yaw, pitch, roll = pose
-        with tempfile.NamedTemporaryFile() as temp_file:
+        with tempfile.NamedTemporaryFile(suffix='.jpg') as temp_file:
             work_filename = temp_file.name
             shutil.copy(src_filename, work_filename)
-            mat = make_exif_matrix(yaw, pitch, roll)
-            set_user_comment(work_filename, mat)
+            replace_jpeg_rotation_matrix(work_filename, *pose)
             copy_file_to_vm(work_filename, vm_src_dir)
     retries = 60
     ready_files = []
     start_msc(os.path.basename(work_filename))
     extension = '.png' if png else '.jpg'
-    print 'Extension', extension
     while retries:
-        print 'FILES', list_vm_dir(vm_dest_dir)
         ready_files = [fn for fn in list_vm_dir(vm_dest_dir) if fn.lower().endswith(extension)]
         if ready_files:
             break
@@ -237,7 +240,6 @@ def main():
         pose = map(float, conf.pose.split(','))
     else:
         pose = None
-    write_settings(jpeg_quality=conf.quality, depurple=not conf.no_depurple, png=conf.png, adaptive=conf.distance)
     for i, filename in enumerate(src_filenames):
         print '\r%s / %s' % (i, len(src_filenames)),
         sys.stdout.flush()
@@ -245,7 +247,9 @@ def main():
             dest_filename = conf.dest
         else:
             dest_filename = os.path.join(conf.dest, os.path.basename(filename))
-        process_image(filename, dest_filename, conf.png, conf.calibration_file, pose)
+        process_image(filename, dest_filename,
+                      jpeg_quality=conf.quality, depurple=not conf.no_depurple, png=conf.png, adaptive=conf.distance,
+                      calibration_filename=conf.calibration_file, pose=pose)
         print '\r%s / %s' % (i + 1, len(src_filenames)),
         sys.stdout.flush()
 
