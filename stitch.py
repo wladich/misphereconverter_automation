@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # coding: utf-8
 import os
 import subprocess
@@ -132,6 +131,26 @@ def process_image(src_filename, dest_filename, png=False, calibration_filename=N
         if not retries:
             raise Exception('Too many retries while retrieving file')
         time.sleep(1)
+
+
+class PanoeditStitchPlugin:
+    @staticmethod
+    def stitch(src_filename, dest_filename, pose, extra_args):
+        process_image(src_filename, dest_filename, png=True, pose=pose, **extra_args)
+
+    @staticmethod
+    def stitch_preview(src_filename, dest_filename, height, extra_args):
+        with tempfile.NamedTemporaryFile() as tmp:
+            process_image(src_filename, tmp.name, pose=(0, 0, 0), **extra_args)
+            subprocess.check_call(['convert', src_filename, '-resize', '%sx%s' % (height * 2, height), dest_filename])
+
+    @staticmethod
+    def get_arguments():
+        return [
+            # CLI argument, extra_args argument, args for add_argument, kwargs for add_argument
+            ['adb', 'adb_exec',('--adb',), dict(help='adb executable', default='adb')],
+            ['calibration_file', 'calibration_filename', ('--calibration-file',), dict()],
+        ]
 
 
 def main():
