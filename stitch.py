@@ -142,7 +142,7 @@ class PanoeditStitchPlugin:
     def stitch_preview(src_filename, dest_filename, height, extra_args):
         with tempfile.NamedTemporaryFile() as tmp:
             process_image(src_filename, tmp.name, pose=(0, 0, 0), **extra_args)
-            subprocess.check_call(['convert', src_filename, '-resize', '%sx%s' % (height * 2, height), dest_filename])
+            subprocess.check_call(['convert', tmp.name, '-resize', '%sx%s' % (height * 2, height), dest_filename])
 
     @staticmethod
     def get_arguments():
