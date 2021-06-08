@@ -152,6 +152,16 @@ class PanoeditStitchPlugin:
             ['calibration_file', 'calibration_filename', ('--calibration-file',), dict()],
         ]
 
+    @staticmethod
+    def get_ignored_exif_tags():
+        return ['UserComment', 'MakerNotes']
+
+    @staticmethod
+    def get_extra_exif_tags():
+        return [
+            ('StitchingSoftware', 'hirota41'),
+        ]
+
 
 def main():
     parser = argparse.ArgumentParser()
