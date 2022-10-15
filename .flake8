@@ -1,0 +1,13 @@
+[flake8]
+; default Black line length is 88.
+; Black docs suggests to use Bugbear’s B950 which emits error when length exceeds by 10%
+; So using 88 + 10% = 97 and not installing Bugbear
+max-line-length = 97
+import-order-style=pycharm
+; Do not check files:
+; exclude =
+; top level package name to allow absolute imports
+; application_import_names =
+ignore =
+    E203 ; "Whitespace before ':'" - conflicts with Black
+    W503 ; "line break before binary operator" - conflicts with Black
