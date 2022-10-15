@@ -10,6 +10,6 @@ pylint ./*.py
 echo 'Black...'
 black --diff --check -q ./*.py
 echo 'flake8...'
-flake8
+flake8 *.py
 
 echo All checks passed.
