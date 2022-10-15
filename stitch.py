@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 # coding: utf-8
-import os
-import subprocess
 import argparse
-import time
-import tempfile
+import os
 import shlex
+import subprocess
+import tempfile
+import time
 
-vm_src_dir = "/mnt/sdcard/panosrc/"
-vm_dest_dir = "/mnt/sdcard/MiSphereConverter/"
-settings_file = (
+VM_SRC_DIR = "/mnt/sdcard/panosrc/"
+VM_DEST_DIR = "/mnt/sdcard/MiSphereConverter/"
+SETTINGS_FILE = (
     "/data/data/com.hirota41.misphereconverter/shared_prefs/"
     "com.hirota41.misphereconverter_preferences.xml"
 )
-package_name = "com.hirota41.misphereconverter"
+PACKAGE_NAME = "com.hirota41.misphereconverter"
 
 
 def check_file_valid(path, is_png):
@@ -38,19 +38,19 @@ class MSCCleint:
         retries = 10
         while True:
             try:
-                p = subprocess.Popen(
+                with subprocess.Popen(
                     command_line,
                     shell=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                )
-                stdout, stderr = p.communicate()
-                if raiseonerr and p.returncode != 0:
-                    raise Exception(
-                        "adb failed. Command: %s. Exit status: %s. Stdout: %s. Stderr: %s"
-                        % (command_line, p.returncode, stdout, stderr)
-                    )
-                return p, stdout, stderr
+                ) as proc:
+                    stdout, stderr = proc.communicate()
+                    if raiseonerr and proc.returncode != 0:
+                        raise Exception(
+                            "adb failed. Command: %s. Exit status: %s. Stdout: %s. Stderr: %s"
+                            % (command_line, proc.returncode, stdout, stderr)
+                        )
+                    return proc.returncode, stdout, stderr
             except subprocess.CalledProcessError:
                 retries -= 1
                 if not retries:
@@ -69,6 +69,7 @@ class MSCCleint:
     def copy_file_from_vm(self, filename, dest_path):
         self.call_adb("pull", filename, dest_path)
 
+    # pylint: disable-next=R0913
     def start_msc(
         self,
         image_filename,
@@ -80,10 +81,10 @@ class MSCCleint:
     ):
         retries = 10
         while retries:
-            self.call_adb("shell", "am force-stop %s" % package_name)
+            self.call_adb("shell", "am force-stop %s" % PACKAGE_NAME)
             command = (
                 "am start -a STITCH_AUTOMATED --eu android.intent.extra.STREAM file://%s%s"
-                % (vm_src_dir, image_filename)
+                % (VM_SRC_DIR, image_filename)
             )
             if yaw_pitch_roll is not None:
                 command += (
@@ -94,7 +95,7 @@ class MSCCleint:
             command += " --ez depurple %s" % ("true" if depurple else "false")
             command += " --ez lossless %s" % ("true" if png else "false")
             command += " --ei adaptive %s" % adaptive
-            command += " %s/.IntentActivity" % package_name
+            command += " %s/.IntentActivity" % PACKAGE_NAME
             self.call_adb("shell", command)
             time.sleep(1)
             if self.check_msc_alive():
@@ -107,20 +108,21 @@ class MSCCleint:
         return stdout.decode("utf-8").splitlines()
 
     def check_msc_alive(self):
-        p, stdout, stderr = self.call_adb(
-            "shell", "ps | grep %s" % package_name, raiseonerr=False
+        retcode, stdout, stderr = self.call_adb(
+            "shell", "ps | grep %s" % PACKAGE_NAME, raiseonerr=False
         )
         if not stderr:
-            if p.returncode == 0 and stdout:
+            if retcode == 0 and stdout:
                 return True
-            if p.returncode in (0, 1) and not stdout:
+            if retcode in (0, 1) and not stdout:
                 return False
         raise Exception(
             'Unexpected result from ps | grep: code="%s", stdout="%s", stderr="%s"'
-            % (p.returncode, stdout, stderr)
+            % (retcode, stdout, stderr)
         )
 
 
+# pylint: disable-next=R0913
 def process_image(
     src_filename,
     dest_filename,
@@ -133,11 +135,11 @@ def process_image(
     adb_exec="adb",
 ):
     client = MSCCleint(adb_exec)
-    client.ensure_empty_vm_dir(vm_src_dir)
-    client.ensure_empty_vm_dir(vm_dest_dir)
+    client.ensure_empty_vm_dir(VM_SRC_DIR)
+    client.ensure_empty_vm_dir(VM_DEST_DIR)
     if calibration_filename:
-        client.copy_file_to_vm(calibration_filename, vm_dest_dir)
-    client.copy_file_to_vm(src_filename, vm_src_dir)
+        client.copy_file_to_vm(calibration_filename, VM_DEST_DIR)
+    client.copy_file_to_vm(src_filename, VM_SRC_DIR)
     retries = 60
     ready_files = []
     client.start_msc(
@@ -147,7 +149,7 @@ def process_image(
     while retries:
         ready_files = [
             fn
-            for fn in client.list_vm_dir(vm_dest_dir)
+            for fn in client.list_vm_dir(VM_DEST_DIR)
             if fn.lower().endswith(extension)
         ]
         if ready_files:
@@ -157,7 +159,7 @@ def process_image(
     assert len(ready_files) == 1
     retries = 10
     while True:
-        client.copy_file_from_vm(vm_dest_dir + ready_files[0], dest_filename)
+        client.copy_file_from_vm(VM_DEST_DIR + ready_files[0], dest_filename)
         if check_file_valid(dest_filename, png):
             break
         retries -= 1
@@ -195,7 +197,7 @@ class PanoeditStitchPlugin:
                 "calibration_file",
                 "calibration_filename",
                 ("--calibration-file",),
-                dict(),
+                {},
             ],
         ]
 
