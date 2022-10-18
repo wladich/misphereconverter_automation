@@ -6,6 +6,9 @@ import shlex
 import subprocess
 import tempfile
 import time
+from typing import Literal, cast
+
+from panoedit.plugins.stitching_plugin import CliArgument, Pose, StitchPlugin
 
 VM_SRC_DIR = "/mnt/sdcard/panosrc/"
 VM_DEST_DIR = "/mnt/sdcard/MiSphereConverter/"
@@ -16,7 +19,7 @@ SETTINGS_FILE = (
 PACKAGE_NAME = "com.hirota41.misphereconverter"
 
 
-def check_file_valid(path, is_png):
+def check_file_valid(path: str, is_png: bool) -> bool:
     if is_png:
         ending = b"\x00\x00\x00\x00IEND\xae\x42\x60\x82"
     else:
@@ -30,55 +33,55 @@ def check_file_valid(path, is_png):
 
 
 class MSCCleint:
-    def __init__(self, adb_exec):
+    def __init__(self, adb_exec: str):
         self.adb_exec = adb_exec
 
-    def call_adb(self, *args, raiseonerr=True):
+    def call_adb(self, *args: str, raiseonerr: bool = True) -> tuple[int, str, str]:
         command_line = self.adb_exec + " " + " ".join(map(shlex.quote, args))
         retries = 10
         while True:
             try:
-                with subprocess.Popen(
+                proc = subprocess.run(
                     command_line,
                     shell=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                ) as proc:
-                    stdout, stderr = proc.communicate()
-                    if raiseonerr and proc.returncode != 0:
-                        raise Exception(
-                            "adb failed. Command: %s. Exit status: %s. Stdout: %s. Stderr: %s"
-                            % (command_line, proc.returncode, stdout, stderr)
-                        )
-                    return proc.returncode, stdout, stderr
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if raiseonerr and proc.returncode != 0:
+                    raise Exception(
+                        "adb failed. Command: %s. Exit status: %s. Stdout: %s. Stderr: %s"
+                        % (command_line, proc.returncode, proc.stdout, proc.stderr)
+                    )
+                return proc.returncode, proc.stdout, proc.stderr
             except subprocess.CalledProcessError:
                 retries -= 1
                 if not retries:
                     raise
                 time.sleep(1)
 
-    def ensure_empty_vm_dir(self, dir_):
+    def ensure_empty_vm_dir(self, dir_: str) -> None:
         self.call_adb("shell", "mkdir -p %s" % dir_)
         self.call_adb("shell", "touch %s/dummy" % dir_)
         self.call_adb("shell", "rm %s/*" % dir_)
 
-    def copy_file_to_vm(self, filename, dest_path):
+    def copy_file_to_vm(self, filename: str, dest_path: str) -> None:
         assert os.path.exists(filename), filename
         self.call_adb("push", filename, dest_path)
 
-    def copy_file_from_vm(self, filename, dest_path):
+    def copy_file_from_vm(self, filename: str, dest_path: str) -> None:
         self.call_adb("pull", filename, dest_path)
 
     # pylint: disable-next=R0913
     def start_msc(
         self,
-        image_filename,
-        yaw_pitch_roll,
-        jpeg_quality=95,
-        depurple=True,
-        png=False,
-        adaptive=3,
-    ):
+        image_filename: str,
+        yaw_pitch_roll: Pose | None,
+        jpeg_quality: int = 95,
+        depurple: bool = True,
+        png: bool = False,
+        adaptive: int = 3,
+    ) -> None:
         retries = 10
         while retries:
             self.call_adb("shell", "am force-stop %s" % PACKAGE_NAME)
@@ -89,7 +92,7 @@ class MSCCleint:
             if yaw_pitch_roll is not None:
                 command += (
                     " --ez ignore_exif true --ef yaw %.2f --ef pitch %.2f --ef roll %.2f"
-                    % tuple(yaw_pitch_roll)
+                    % yaw_pitch_roll
                 )
             command += " --ei jpeg_q %s" % jpeg_quality
             command += " --ez depurple %s" % ("true" if depurple else "false")
@@ -103,11 +106,11 @@ class MSCCleint:
             retries -= 1
         raise Exception("Too many retries to run MSC")
 
-    def list_vm_dir(self, dir_):
+    def list_vm_dir(self, dir_: str) -> list[str]:
         _, stdout, _ = self.call_adb("shell", "ls %s" % dir_)
-        return stdout.decode("utf-8").splitlines()
+        return stdout.splitlines()
 
-    def check_msc_alive(self):
+    def check_msc_alive(self) -> bool:
         retcode, stdout, stderr = self.call_adb(
             "shell", "ps | grep %s" % PACKAGE_NAME, raiseonerr=False
         )
@@ -124,16 +127,16 @@ class MSCCleint:
 
 # pylint: disable-next=R0913
 def process_image(
-    src_filename,
-    dest_filename,
-    png=False,
-    calibration_filename=None,
-    pose=None,
-    jpeg_quality=95,
-    depurple=True,
-    adaptive=3,
-    adb_exec="adb",
-):
+    src_filename: str,
+    dest_filename: str,
+    png: bool = False,
+    calibration_filename: str | None = None,
+    pose: Pose | None = None,
+    jpeg_quality: int = 95,
+    depurple: bool = True,
+    adaptive: int = 3,
+    adb_exec: str = "adb",
+) -> None:
     client = MSCCleint(adb_exec)
     client.ensure_empty_vm_dir(VM_SRC_DIR)
     client.ensure_empty_vm_dir(VM_DEST_DIR)
@@ -168,15 +171,36 @@ def process_image(
         time.sleep(1)
 
 
-class PanoeditStitchPlugin:
+class PanoeditStitchPlugin(StitchPlugin):
     @staticmethod
-    def stitch(src_filename, dest_filename, pose, extra_args):
-        process_image(src_filename, dest_filename, png=True, pose=pose, **extra_args)
+    def stitch(
+        src_filename: str, dest_filename: str, pose: Pose, kwargs: dict[str, object]
+    ) -> None:
+        assert isinstance(kwargs["adb_exec"], str)
+        assert isinstance(kwargs["calibration_filename"], str)
+        process_image(
+            src_filename,
+            dest_filename,
+            png=True,
+            pose=pose,
+            adb_exec=kwargs["adb_exec"],
+            calibration_filename=kwargs["calibration_filename"],
+        )
 
     @staticmethod
-    def stitch_preview(src_filename, dest_filename, height, extra_args):
+    def stitch_preview(
+        src_filename: str, dest_filename: str, height: int, kwargs: dict[str, object]
+    ) -> None:
+        assert isinstance(kwargs["adb_exec"], str)
+        assert isinstance(kwargs["calibration_filename"], str)
         with tempfile.NamedTemporaryFile() as tmp:
-            process_image(src_filename, tmp.name, pose=(0, 0, 0), **extra_args)
+            process_image(
+                src_filename,
+                tmp.name,
+                pose=Pose(0, 0, 0),
+                adb_exec=kwargs["adb_exec"],
+                calibration_filename=kwargs["calibration_filename"],
+            )
             subprocess.check_call(
                 [
                     "gm",
@@ -189,30 +213,47 @@ class PanoeditStitchPlugin:
             )
 
     @staticmethod
-    def get_arguments():
+    def get_arguments() -> list[CliArgument]:
         return [
             # CLI argument, extra_args argument, args for add_argument, kwargs for add_argument
-            ["adb", "adb_exec", ("--adb",), dict(help="adb executable", default="adb")],
-            [
+            CliArgument(
+                "adb",
+                "adb_exec",
+                ("--adb",),
+                dict(help="adb executable", default="adb"),
+            ),
+            CliArgument(
                 "calibration_file",
                 "calibration_filename",
                 ("--calibration-file",),
                 {},
-            ],
+            ),
         ]
 
     @staticmethod
-    def get_ignored_exif_tags():
+    def get_ignored_exif_tags() -> list[str]:
         return ["UserComment", "MakerNotes"]
 
     @staticmethod
-    def get_extra_exif_tags():
+    def get_extra_exif_tags() -> list[tuple[str, str]]:
         return [
             ("StitchingSoftware", "hirota41"),
         ]
 
 
-def main():
+class Args(argparse.Namespace):
+    src: str
+    dest: str
+    quality: int
+    png: bool
+    no_depurple: bool
+    distance: Literal[0, 1, 2, 3]
+    calibration_file: str | None
+    pose: str | None
+    adb: str
+
+
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("src", help="Source file name")
     parser.add_argument("dest", help="Output filename")
@@ -239,10 +280,13 @@ def main():
         help="yaw,pitch,roll in degrees. If not specified use pose from image exif data.",
     )
     parser.add_argument("--adb", help="adb executable", default="adb")
-    conf = parser.parse_args()
+    conf = parser.parse_args(namespace=Args())
 
+    pose: Pose | None
     if conf.pose is not None:
-        pose = map(float, conf.pose.split(","))
+        values = tuple(map(float, conf.pose.split(",")))
+        assert len(values) == 3
+        pose = cast(Pose, values)
     else:
         pose = None
     process_image(

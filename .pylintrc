@@ -17,6 +17,7 @@ disable=
     missing-class-docstring,
     consider-using-f-string,
     consider-using-max-builtin,
+    too-few-public-methods,
 
 enable=
    useless-suppression,
