@@ -1,5 +1,6 @@
 define help
 Available targets:
+	help
 	pylint
 	flake8
 	mypy
@@ -7,6 +8,8 @@ Available targets:
 	venv [path=PATH_TO_VENV]
 		create venv for development
 		default path=./venv
+	clean
+
 	common arguments:
 		python=PYTHON3_EXECUTABLE, defaults to python3
 endef
