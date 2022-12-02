@@ -30,7 +30,10 @@ black:
 flake8:
 	flake8 *.py
 
-check: pylint black flake8
+mypy:
+	mypy .
+
+check: pylint black flake8 mypy
 	@echo All checks passed.
 
 .PHONY: venv
