@@ -4,11 +4,8 @@ import argparse
 import os
 import shlex
 import subprocess
-import tempfile
 import time
-from typing import Literal, cast
-
-from panoedit.plugins.stitching_plugin import CliArgument, Pose, StitchPlugin
+from typing import Literal, NamedTuple, cast
 
 VM_SRC_DIR = "/mnt/sdcard/panosrc/"
 VM_DEST_DIR = "/mnt/sdcard/MiSphereConverter/"
@@ -17,6 +14,12 @@ SETTINGS_FILE = (
     "com.hirota41.misphereconverter_preferences.xml"
 )
 PACKAGE_NAME = "com.hirota41.misphereconverter"
+
+
+class Pose(NamedTuple):
+    yaw: float
+    pitch: float
+    roll: float
 
 
 def check_file_valid(path: str, is_png: bool) -> bool:
@@ -169,76 +172,6 @@ def process_image(
         if not retries:
             raise Exception("Too many retries while retrieving file")
         time.sleep(1)
-
-
-class PanoeditStitchPlugin(StitchPlugin):
-    @staticmethod
-    def stitch(
-        src_filename: str, dest_filename: str, pose: Pose, kwargs: dict[str, object]
-    ) -> None:
-        assert isinstance(kwargs["adb_exec"], str)
-        assert isinstance(kwargs["calibration_filename"], str)
-        process_image(
-            src_filename,
-            dest_filename,
-            png=True,
-            pose=pose,
-            adb_exec=kwargs["adb_exec"],
-            calibration_filename=kwargs["calibration_filename"],
-        )
-
-    @staticmethod
-    def stitch_preview(
-        src_filename: str, dest_filename: str, height: int, kwargs: dict[str, object]
-    ) -> None:
-        assert isinstance(kwargs["adb_exec"], str)
-        assert isinstance(kwargs["calibration_filename"], str)
-        with tempfile.NamedTemporaryFile() as tmp:
-            process_image(
-                src_filename,
-                tmp.name,
-                pose=Pose(0, 0, 0),
-                adb_exec=kwargs["adb_exec"],
-                calibration_filename=kwargs["calibration_filename"],
-            )
-            subprocess.check_call(
-                [
-                    "gm",
-                    "convert",
-                    tmp.name,
-                    "-resize",
-                    "%sx%s" % (height * 2, height),
-                    dest_filename,
-                ]
-            )
-
-    @staticmethod
-    def get_arguments() -> list[CliArgument]:
-        return [
-            # CLI argument, extra_args argument, args for add_argument, kwargs for add_argument
-            CliArgument(
-                "adb",
-                "adb_exec",
-                ("--adb",),
-                dict(help="adb executable", default="adb"),
-            ),
-            CliArgument(
-                "calibration_file",
-                "calibration_filename",
-                ("--calibration-file",),
-                {},
-            ),
-        ]
-
-    @staticmethod
-    def get_ignored_exif_tags() -> list[str]:
-        return ["UserComment", "MakerNotes"]
-
-    @staticmethod
-    def get_extra_exif_tags() -> list[tuple[str, str]]:
-        return [
-            ("StitchingSoftware", "hirota41"),
-        ]
 
 
 class Args(argparse.Namespace):
