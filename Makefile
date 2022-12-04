@@ -22,13 +22,13 @@ help:
 	@echo "$$help"
 
 pylint:
-	pylint ./*.py
+	pylint . --recursive y
 
 black:
-	black --diff --check -q ./*.py
+	black --diff --check -q .
 
 flake8:
-	flake8 *.py
+	flake8 .
 
 mypy:
 	mypy .
