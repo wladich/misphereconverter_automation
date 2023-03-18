@@ -146,7 +146,7 @@ def process_image(
     if calibration_filename:
         client.copy_file_to_vm(calibration_filename, VM_DEST_DIR)
     client.copy_file_to_vm(src_filename, VM_SRC_DIR)
-    retries = 60
+    retries = 180
     ready_files = []
     client.start_msc(
         os.path.basename(src_filename), pose, jpeg_quality, depurple, png, adaptive
